@@ -1,0 +1,27 @@
+// The Notices and Disclaimers for Ocean Worlds Autonomy Testbed for Exploration
+// Research and Simulation can be found in README.md in the root directory of
+// this repository.
+
+// Simple test/demo of antenna and camera: a short panoramic image.
+
+Command log_info (...);
+
+LibraryAction TakePanorama (In Real TiltLo, In Real TiltHi,
+                            In Real PanLo, In Real PanHi,
+                            In Real HorizOverlap, In Real VertOverlap,
+                            In String InstanceName,
+                            In Boolean IgnoreCrash);
+
+TestAntennaCamera:
+{
+  log_info ("Starting Antenna/Camera demo...");
+
+  LibraryCall TakePanorama (TiltLo = 20, TiltHi = 26,
+                            PanLo = 45, PanHi = 70,
+                            HorizOverlap = 2,
+                            VertOverlap = 2,
+                            InstanceName = "TestAntennaCamera",
+                            IgnoreCrash = true);
+
+  log_info ("Antenna/Camera demo finished.");
+}

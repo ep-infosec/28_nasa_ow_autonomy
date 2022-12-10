@@ -1,0 +1,36 @@
+// The Notices and Disclaimers for Ocean Worlds Autonomy Testbed for Exploration
+// Research and Simulation can be found in README.md in the root directory of
+// this repository.
+
+// Auxiliary plan for TakePanorama.  Tilts to specified angle and then performs
+// a single image pass.
+
+#include "plexil_defs.h"
+
+String Lookup ToString(...);
+
+
+LibraryAction ImagePass (In Real PanLo,
+                         In Real PanHi,
+                         In Real PanIncrement,
+                         In String CheckpointName,
+                         In Real Tilt,
+                         InOut Real PanAngle,
+                         InOut Boolean ReversePan);
+LibraryAction Tilt (In Real Degrees);
+
+TiltAndImagePass:
+{
+  In Real TiltAngle, PanIncrement, PanLo, PanHi;
+  In String CheckpointName;
+  InOut Real PanAngle;
+  InOut Boolean ReversePan;
+
+  LibraryCall Tilt (Degrees = TiltAngle);
+  LibraryCall ImagePass (PanIncrement = PanIncrement,
+                         PanLo = PanLo, PanHi = PanHi,
+                         PanAngle = PanAngle,
+                         Tilt = TiltAngle,
+                         CheckpointName = CheckpointName,
+                         ReversePan = ReversePan);
+}

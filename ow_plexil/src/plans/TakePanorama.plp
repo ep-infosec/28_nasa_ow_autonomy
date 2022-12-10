@@ -1,0 +1,177 @@
+// The Notices and Disclaimers for Ocean Worlds Autonomy Testbed for Exploration
+// Research and Simulation can be found in README.md in the root directory of
+// this repository.
+
+// Take a panoramic image, with specified tilt and pan range and
+// vertical/horizonal image overlaps.
+
+#include "plexil_defs.h"
+#include "plan-interface.h"
+
+LibraryAction TiltAndImagePass (In Real TiltAngle,
+                                InOut Real PanAngle,
+                                In Real PanIncrement,
+                                In Real PanLo,
+                                In Real PanHi,
+                                In String CheckpointName,
+                                InOut Boolean ReversePan);
+
+
+LibraryAction GetInfoIfCrash(In String CheckpointName,
+                             In Boolean IgnoreCrash,
+                             InOut Boolean Crashed,
+                             InOut String Info,
+                             InOut Real CrashTime);
+
+LibraryAction CompatiblePanorama(In Real First,
+                                 In Real Second,
+                                 In String CheckpointName,
+                                 InOut Boolean Result);
+TakePanorama:
+{
+  // All inputs are in degrees
+  // TODO: When Europa
+  In Real TiltLo, TiltHi, PanLo, PanHi;
+  In Real VertOverlap, HorizOverlap;
+  In String InstanceName;
+  In Boolean IgnoreCrash;
+  // Later:
+  //   - rows, cols
+  //   - image order (top/bottom, right/left - can be enum)
+  //   - image overlap PERCENT
+  //   - azimuth/elevation instead of tilt/pan angles
+  //   - reference frame (lander, level)
+
+  // Declare plan variables
+  Real tilt, pan, tilt_increment, pan_increment;
+  String OurName;
+  Boolean reverse_pan = false;
+  Boolean exit = false;
+  String args;
+
+  ExitCondition exit;
+
+  if(InstanceName == "Args"){
+    OurName = ("TakePanorama__" + Lookup(ToString(TiltLo,"_",
+                                                  TiltHi,"_",
+                                                  PanLo,"_",
+                                                  PanHi,"_",
+                                                  VertOverlap,"_",
+                                                  HorizOverlap)));
+  }
+  else OurName = "TakePanorama__"+InstanceName;
+
+  // Check constraints
+  if (TiltLo > TiltHi || TiltLo < TILT_MIN || TiltHi > TILT_MAX) {
+    log_error ("TakePanorama: Tilt spec outside valid range, exiting.");
+    exit = true;
+  }
+  endif
+
+  if (PanLo > PanHi || PanLo < PAN_MIN || PanHi > PAN_MAX) {
+    log_error ("TakePanorama: Pan spec outside valid range, exiting.");
+    exit = true;
+  }
+  endif
+
+  if (VERT_FOV/2 <= VertOverlap) {
+    log_error ("TakePanorama: Vertical overlap too high, exiting.");
+    exit = true;
+  }
+  endif
+
+  if (HORIZ_FOV/2 <= HorizOverlap) {
+    log_error ("TakePanorama: Horizontal overlap too high, exiting.");
+    exit = true;
+  }
+  endif
+
+  // Initialize plan variables
+  tilt = TiltLo;
+  pan = PanLo;
+
+  tilt_increment = (VERT_FOV / 2) - VertOverlap;
+  pan_increment = (HORIZ_FOV / 2) - HorizOverlap;
+
+  // Behavior: If the latest panorama with these arguments crashed, retake the
+  // last image and continue from there
+  CrashHandling:{
+    String info = "None"; // Can't pass empty strings in
+    Boolean Crashed;
+    Real CrashTime;
+
+    LibraryCall GetInfoIfCrash(CheckpointName=OurName,
+                               IgnoreCrash=IgnoreCrash,
+                               Crashed=Crashed,
+                               Info=info,
+                               CrashTime=CrashTime);
+
+    // If the times aren't compatible, we should act as if we didn't crash
+    CheckPanoramaTimes:{
+      Boolean Compatible;
+      SkipCondition !Crashed;
+      LibraryCall CompatiblePanorama(First=CrashTime,
+                                     Second=Lookup(time,1),
+                                     CheckpointName=OurName,
+                                     Result=Compatible);
+      Crashed = Compatible;
+    }
+
+    // redo last image we were on
+    SetPanTilt:{
+      // Info is of the format reverse_tilt_pan
+      String tilt_s;
+      String pan_s;
+      String reverse_s;
+      SkipCondition !Crashed;
+      log_info("Loading previous TakePanorama checkpoint");
+      // Split string
+      reverse_s = Lookup(substr(info,
+                                0,
+                                Lookup(find_first_of(info,"_"))));
+      tilt_s = Lookup(substr(info,
+                             Lookup(find_first_of(info,"_")) + 1,
+                             Lookup(find_last_of(info,"_")) -
+                             Lookup(find_first_of(info,"_")) - 1));
+      pan_s  = Lookup(substr(info, Lookup(find_last_of(info,"_"))+1));
+      log_info("Loaded previous checkpoint:   Reverse_pan: ",
+               reverse_s," Tilt: ",tilt_s,"Pan: ",pan_s);
+
+      // Conversions
+      reverse_pan = Lookup(StringToBoolean(reverse_s));
+      tilt =        Lookup(StringToReal(tilt_s));
+      pan =         Lookup(StringToReal(pan_s));
+    }
+  }
+
+  log_info("Beginning panorama with name ",OurName);
+  // Get to initial position
+  InitialPan: LibraryCall Pan (Degrees = pan);
+
+  // Iterate through tilt
+  while (tilt < TiltHi) {
+    LibraryCall TiltAndImagePass (TiltAngle = tilt,
+                                  PanAngle = pan,
+                                  PanIncrement = pan_increment,
+                                  PanLo = PanLo, PanHi = PanHi,
+                                  CheckpointName=OurName,
+                                  ReversePan = reverse_pan);
+
+    set_checkpoint(OurName,true,Lookup(ToString(reverse_pan,"_",tilt,"_",pan)));
+    SynchronousCommand flush_checkpoints();
+    tilt = tilt + tilt_increment;
+  }
+
+  // Cap last pan at TiltHi unless we just did a pass at TiltHi
+  if (tilt >= TiltHi && tilt < TiltHi + tilt_increment) {
+    LibraryCall TiltAndImagePass (TiltAngle = TiltHi,
+                                  PanAngle = pan,
+                                  PanIncrement = pan_increment,
+                                  PanLo = PanLo, PanHi = PanHi,
+                                  CheckpointName=OurName,
+                                  ReversePan = reverse_pan);
+  }
+  endif
+  set_checkpoint(OurName+"__End",true,"");
+  SynchronousCommand flush_checkpoints();
+}

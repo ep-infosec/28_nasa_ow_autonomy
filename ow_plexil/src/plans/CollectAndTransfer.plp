@@ -1,0 +1,123 @@
+// The Notices and Disclaimers for Ocean Worlds Autonomy Testbed for Exploration
+// Research and Simulation can be found in README.md in the root directory of
+// this repository.
+
+// Collect the sample and transfer it to the receptacle.  This is a variant of
+// CollectSample that includes checkpointing.
+
+#include "plexil_defs.h"
+#include "plan-interface.h"
+
+Real Lookup CollectAndTransferTimeout;
+LibraryAction ImageSampleSite();
+LibraryAction Stub(In String desc);
+LibraryAction Image(In String desc);
+LibraryAction Downlink();
+LibraryAction GetInfoIfCrash(In String CheckpointName,
+                             In Boolean IgnoreCrash,
+                             InOut Boolean Crashed,
+                             InOut String Info,
+                             InOut Real CrashTime);
+
+CollectAndTransfer:
+{
+  In Boolean IgnoreCrash;
+  In String InstanceName;
+  In Real X;
+  In Real Y;
+  In Real GroundPos;
+  In Real Depth;
+  In Real Length;
+  In Boolean Parallel;
+
+  Real SampleAmount;
+  Boolean CollectMore = true;
+  Integer LastComplete = 0;
+  String OurName;
+
+  OurName = "CollectAndTransfer__" + InstanceName;
+
+  CrashHandling:{
+    // To get around a plexil bug where passing "" in doesn't work
+    // Args will be treated as ""
+    String info = "None";
+    Boolean Crashed;
+    Real CrashTime; // Not used, sample integrity is handled in another plan
+    LibraryCall GetInfoIfCrash(CheckpointName=OurName,
+                               IgnoreCrash=IgnoreCrash,
+                               Crashed=Crashed,
+                               Info=info,
+                               CrashTime=CrashTime);
+
+    SetCollectMoreLastComplete:{
+      String more_s;
+      String last_complete_s;
+      SkipCondition !Crashed;
+      // Split info, which was format LastComplete_DigMore
+      last_complete_s = Lookup(substr(info,
+                                      0,
+                                      Lookup(find_first_of(info,"_"))));
+      more_s =          Lookup(substr(info,
+                                      Lookup(find_first_of(info,"_"))+1));
+
+      log_info("Loaded previous checkpoint:  Last_complete: ",
+               last_complete_s," More: ",
+               more_s);
+      CollectMore  = Lookup(StringToBoolean(more_s));
+      LastComplete = Lookup(StringToInteger(last_complete_s));
+    }
+  }
+
+  log_info ("Beginning sample collection with name ", OurName);
+
+  CollectAndTransfer1:
+  {
+    PreGrind:
+    {
+      SkipCondition LastComplete >= 1;
+      LibraryCall Grind (X = X, Y = Y, Depth = Depth, Length = Length,
+                         Parallel = Parallel, GroundPos = GroundPos);
+      set_checkpoint(OurName,true,Lookup(ToString(1,"_",CollectMore)));
+      SynchronousCommand flush_checkpoints();
+    }
+    Collect:
+    {
+      SkipCondition LastComplete >= 2;
+      LibraryCall DigCircular (X = X, Y = Y, Depth = Depth,
+                               GroundPos = GroundPos, Parallel = Parallel);
+      set_checkpoint(OurName,true,Lookup(ToString(2,"_",CollectMore)));
+      SynchronousCommand flush_checkpoints();
+    }
+    ImageSample:
+    {
+      SkipCondition LastComplete >= 3;
+      LibraryCall Stub(desc="Aligning camera and sample");
+      LibraryCall Image(desc="sample");
+      set_checkpoint(OurName,true,Lookup(ToString(3,"_",CollectMore)));
+      SynchronousCommand flush_checkpoints();
+    }
+
+    DownlinkSampleImage:
+    {
+      SkipCondition LastComplete >= 4;
+      LibraryCall Downlink();
+      Wait 1;
+      set_checkpoint(OurName,true,Lookup(ToString(4,"_",CollectMore)));
+      SynchronousCommand flush_checkpoints();
+    }
+
+    Transfer:
+    {
+      SkipCondition LastComplete >= 5;
+
+      LibraryCall Deliver ();
+      Wait 1;
+      set_checkpoint(OurName,true,Lookup(ToString(5,"_",CollectMore)));
+      SynchronousCommand flush_checkpoints();
+    }
+	}
+  // Reset for next repeat
+  LastComplete = 0;
+  set_checkpoint(OurName+"__End",true,"");
+  SynchronousCommand flush_checkpoints();
+}

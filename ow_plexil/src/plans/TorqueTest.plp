@@ -1,0 +1,49 @@
+// The Notices and Disclaimers for Ocean Worlds Autonomy Testbed for Exploration
+// Research and Simulation can be found in README.md in the root directory of
+// this repository.
+
+// A test plan that detects when arm joints exceed their soft or hard torque
+// limits.
+
+#include "plexil_defs.h"
+#include "plan-interface.h"
+
+TorqueTest:
+{
+  Boolean Finding = true;
+  String JointNames[NUM_JOINTS] = #("AntennaPan" "AntennaTilt" "DistalPitch"
+                                    "HandYaw"
+                                    "ProximalPitch" "ScoopYaw"
+                                    "ShoulderPitch" "ShoulderYaw" "Grinder");
+
+  log_info ("Beginning over-torque test...");
+  DigAndMonitor: Concurrence
+  {
+    FindGround:
+    {
+      LibraryCall Unstow();
+
+      // Find ground, attempting to reach below surface.
+      LibraryCall GuardedMove (X = 2.0, Y = 0, Z = 0.3,
+                               DirX = 0, DirY = 0, DirZ = 1,
+                               SearchDistance = 0.5);
+      Finding = false;
+    }
+
+    MonitorTorque:
+    {
+      RepeatCondition Finding;
+      for (Integer i = 0; i < NUM_JOINTS; i+1) {
+        if (Lookup(HardTorqueLimitReached(JointNames[i]))) {
+          log_error ("Joint ", JointNames[i], " exceeding its hard limit.");
+        }
+        elseif (Lookup(SoftTorqueLimitReached(JointNames[i]))) {
+          log_warning ("Joint ", JointNames[i], " exceeding its soft limit.");
+        }
+        endif
+      }
+      Wait 1;
+    }
+  }
+  log_info ("Over-torque test finished.");
+}
